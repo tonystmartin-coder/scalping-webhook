@@ -1,0 +1,140 @@
+//@version=5
+strategy(
+     title       = "Gold Scalping v2 — EMA 9/21 + RSI(7) + ATR(14) + PE/TP/SL",
+     shorttitle  = "XAUUSD Scalp v2",
+     overlay     = true,
+     default_qty_type  = strategy.percent_of_equity,
+     default_qty_value = 2,
+     commission_type   = strategy.commission.percent,
+     commission_value  = 0.01,
+     slippage    = 2
+ )
+
+// ─────────────────────────────────────────────
+// 1. INPUTS
+// ─────────────────────────────────────────────
+ema_fast   = input.int(9,  "EMA rapide",  group="EMAs")
+ema_slow   = input.int(21, "EMA lente",   group="EMAs")
+ema_h1     = input.int(50, "EMA filtre",  group="EMAs")
+
+rsi_len    = input.int(7,  "RSI période", group="RSI")
+rsi_ob     = input.int(70, "Sur-achat",   group="RSI")
+rsi_os     = input.int(30, "Sur-vente",   group="RSI")
+
+atr_len    = input.int(14,  "ATR période",        group="ATR / Gestion")
+atr_min    = input.float(1.0, "ATR minimum",      group="ATR / Gestion", step=0.1)
+tp_mult    = input.float(1.5, "TP multiplicateur",group="ATR / Gestion", step=0.1)
+sl_mult    = input.float(0.7, "SL multiplicateur",group="ATR / Gestion", step=0.1)
+pe_offset  = input.float(0.3, "PE offset ATR",    group="ATR / Gestion", step=0.1)
+
+// ─────────────────────────────────────────────
+// 2. CALCULS
+// ─────────────────────────────────────────────
+fast = ta.ema(close, ema_fast)
+slow = ta.ema(close, ema_slow)
+htf  = ta.ema(close, ema_h1)
+rsi  = ta.rsi(close, rsi_len)
+atr  = ta.atr(atr_len)
+
+// Heiken Ashi
+ha_close  = (open + high + low + close) / 4
+ha_open2  = float(na)
+ha_open2 := na(ha_open2[1]) ? (open + close) / 2 : (ha_open2[1] + ha_close[1]) / 2
+ha_bull   = ha_close >= ha_open2
+
+// ─────────────────────────────────────────────
+// 3. CONDITIONS
+// ─────────────────────────────────────────────
+trend_up   = close > htf
+trend_down = close < htf
+cross_up   = ta.crossover(fast, slow)
+cross_down = ta.crossunder(fast, slow)
+rsi_ok_buy  = rsi > 50 and rsi < rsi_ob
+rsi_ok_sell = rsi < 50 and rsi > rsi_os
+atr_ok      = atr >= atr_min
+
+long_signal  = cross_up   and trend_up   and rsi_ok_buy  and atr_ok and ha_bull
+short_signal = cross_down and trend_down and rsi_ok_sell and atr_ok and not ha_bull
+
+// ─────────────────────────────────────────────
+// 4. PE / TP / SL dynamiques
+// ─────────────────────────────────────────────
+// LONG
+pe_long = close - atr * pe_offset   // Point d'Entrée légèrement sous le prix
+tp_long = close + atr * tp_mult     // Take Profit
+sl_long = close - atr * sl_mult     // Stop Loss
+
+// SHORT
+pe_short = close + atr * pe_offset
+tp_short = close - atr * tp_mult
+sl_short = close + atr * sl_mult
+
+// ─────────────────────────────────────────────
+// 5. ORDRES
+// ─────────────────────────────────────────────
+if long_signal
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", "Long", limit=tp_long, stop=sl_long)
+
+if short_signal
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short Exit", "Short", limit=tp_short, stop=sl_short)
+
+// ─────────────────────────────────────────────
+// 6. AFFICHAGE
+// ─────────────────────────────────────────────
+plot(fast, "EMA 9",      color=color.new(#534AB7, 0), linewidth=1)
+plot(slow, "EMA 21",     color=color.new(#1D9E75, 0), linewidth=2)
+plot(htf,  "EMA filtre", color=color.new(#BA7517, 30), linewidth=1, style=plot.style_circles)
+
+plotshape(long_signal,  title="BUY",  style=shape.labelup,   location=location.belowbar, color=color.new(#1D9E75,0), text="BUY",  textcolor=color.white, size=size.small)
+plotshape(short_signal, title="SELL", style=shape.labeldown, location=location.abovebar, color=color.new(#E24B4A,0), text="SELL", textcolor=color.white, size=size.small)
+
+// Lignes PE / TP / SL en position
+in_long  = strategy.position_size > 0
+in_short = strategy.position_size < 0
+
+plot(in_long  ? tp_long  : na, "TP Long",  color=color.new(#1D9E75,0), linewidth=1, style=plot.style_linebr)
+plot(in_long  ? sl_long  : na, "SL Long",  color=color.new(#E24B4A,0), linewidth=1, style=plot.style_linebr)
+plot(in_long  ? pe_long  : na, "PE Long",  color=color.new(#BA7517,0), linewidth=1, style=plot.style_linebr)
+plot(in_short ? tp_short : na, "TP Short", color=color.new(#1D9E75,0), linewidth=1, style=plot.style_linebr)
+plot(in_short ? sl_short : na, "SL Short", color=color.new(#E24B4A,0), linewidth=1, style=plot.style_linebr)
+plot(in_short ? pe_short : na, "PE Short", color=color.new(#BA7517,0), linewidth=1, style=plot.style_linebr)
+
+barcolor(long_signal ? color.new(#1D9E75,80) : short_signal ? color.new(#E24B4A,80) : na)
+
+// ─────────────────────────────────────────────
+// 7. TABLEAU DE BORD
+// ─────────────────────────────────────────────
+var table dash = table.new(position.top_right, 2, 8, border_width=1)
+
+if barstate.islast
+    table.cell(dash, 0, 0, "Indicateur", text_color=color.gray, bgcolor=color.new(color.gray,90), text_size=size.small)
+    table.cell(dash, 1, 0, "Valeur",     text_color=color.gray, bgcolor=color.new(color.gray,90), text_size=size.small)
+    table.cell(dash, 0, 1, "EMA 9",      text_color=color.white, bgcolor=color.new(#534AB7,30), text_size=size.small)
+    table.cell(dash, 1, 1, str.tostring(fast, "#.00"), text_color=color.white, bgcolor=color.new(#534AB7,30), text_size=size.small)
+    table.cell(dash, 0, 2, "EMA 21",     text_color=color.white, bgcolor=color.new(#1D9E75,30), text_size=size.small)
+    table.cell(dash, 1, 2, str.tostring(slow, "#.00"), text_color=color.white, bgcolor=color.new(#1D9E75,30), text_size=size.small)
+    table.cell(dash, 0, 3, "RSI(7)",     text_color=rsi>rsi_ob ? color.red : rsi<rsi_os ? color.green : color.white, bgcolor=color.new(color.gray,80), text_size=size.small)
+    table.cell(dash, 1, 3, str.tostring(rsi, "#.0"), text_color=rsi>rsi_ob ? color.red : rsi<rsi_os ? color.green : color.white, bgcolor=color.new(color.gray,80), text_size=size.small)
+    table.cell(dash, 0, 4, "ATR(14)",    text_color=atr_ok ? color.green : color.red, bgcolor=color.new(color.gray,80), text_size=size.small)
+    table.cell(dash, 1, 4, str.tostring(atr, "#.00"), text_color=atr_ok ? color.green : color.red, bgcolor=color.new(color.gray,80), text_size=size.small)
+    sig_color = long_signal ? color.new(#1D9E75,20) : short_signal ? color.new(#E24B4A,20) : color.new(color.gray,60)
+    table.cell(dash, 0, 5, "Signal",     text_color=color.white, bgcolor=sig_color, text_size=size.small)
+    table.cell(dash, 1, 5, long_signal ? "BUY" : short_signal ? "SELL" : "—", text_color=color.white, bgcolor=sig_color, text_size=size.small)
+    pe_val = long_signal ? pe_long : short_signal ? pe_short : close
+    tp_val = long_signal ? tp_long : short_signal ? tp_short : close
+    sl_val = long_signal ? sl_long : short_signal ? sl_short : close
+    table.cell(dash, 0, 6, "PE",  text_color=color.white, bgcolor=color.new(#BA7517,30), text_size=size.small)
+    table.cell(dash, 1, 6, str.tostring(pe_val, "#.00"), text_color=color.white, bgcolor=color.new(#BA7517,30), text_size=size.small)
+    table.cell(dash, 0, 7, "TP / SL", text_color=color.white, bgcolor=color.new(color.gray,70), text_size=size.small)
+    table.cell(dash, 1, 7, str.tostring(tp_val,"#.00") + " / " + str.tostring(sl_val,"#.00"), text_color=color.white, bgcolor=color.new(color.gray,70), text_size=size.small)
+
+// ─────────────────────────────────────────────
+// 8. ALERTES WEBHOOK avec PE / TP / SL
+// ─────────────────────────────────────────────
+alertcondition(long_signal, title="GOLD BUY Signal",
+     message='{"asset":"XAUUSD","action":"buy","price":{{close}},"pe":' + str.tostring(pe_long, "#.00") + ',"tp":' + str.tostring(tp_long, "#.00") + ',"sl":' + str.tostring(sl_long, "#.00") + ',"atr":{{plot_5}},"rsi":{{plot_4}},"tf":"{{interval}}","time":"{{time}}"}')
+
+alertcondition(short_signal, title="GOLD SELL Signal",
+     message='{"asset":"XAUUSD","action":"sell","price":{{close}},"pe":' + str.tostring(pe_short, "#.00") + ',"tp":' + str.tostring(tp_short, "#.00") + ',"sl":' + str.tostring(sl_short, "#.00") + ',"atr":{{plot_5}},"rsi":{{plot_4}},"tf":"{{interval}}","time":"{{time}}"}')
